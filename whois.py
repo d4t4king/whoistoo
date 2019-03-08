@@ -6,6 +6,7 @@ IPv4 Whois data collection and analysis tool
 """
 
 import argparse
+from random import randint
 
 def handle_args():
 	"""
@@ -16,8 +17,7 @@ def handle_args():
 	"""
 	p = argparse.ArgumentParser()
 	p.add_argument('action', type=str, nargs=1, metavar='action', \
-		help='Action to take.  Valid options are "collect" or "stats"', \
-		action='store_true', dest='action')
+		help='Action to take.  Valid options are "collect" or "stats"')
 	p.add_argument('--sleep-min', type=int, dest='sleep_min', \
 		help="Minimum thread sleep value in seconds.", \
 		default=randint(1, 5))
@@ -42,7 +42,8 @@ def main():
 
 	args = handle_args()
 
-	if args.collect:
+	if args.action == 'collect':
+		print("Got action collect.")
 		# these shouldn't be need now since we're handling with
 		# argparse.  But leave it for now, remove once proven.
 		#sleep_min = int(args.sleep_min) \
@@ -52,5 +53,14 @@ def main():
 
 		if args.sleep_min > args.sleep_max:
 			args.sleep_min, args.sleep_max = args.sleep_max, args.sleep_min
+		print("sleep-min: {0} sleep-max: {1}".format(args.sleep_min, \
+			args.sleep_max))
 
-	
+	elif args.action == 'stats':
+		print("Got action stats.")
+		pass
+	else:
+		print("Got undefined action: {0}".format(args.action))
+
+if __name__=='__main__':
+	main()
