@@ -42,7 +42,7 @@ def main():
 
 	args = handle_args()
 
-	if args.action == 'collect':
+	if 'collect' in args.action:
 		print("Got action collect.")
 		# these shouldn't be need now since we're handling with
 		# argparse.  But leave it for now, remove once proven.
@@ -56,7 +56,7 @@ def main():
 		print("sleep-min: {0} sleep-max: {1}".format(args.sleep_min, \
 			args.sleep_max))
 
-	elif args.action == 'stats':
+	elif 'stats' in args.action:
 		print("Got action stats.")
 		pass
 	else:
