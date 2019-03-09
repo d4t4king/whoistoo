@@ -5,6 +5,7 @@ IPv4 Whois data collection and analysis tool
 
 """
 
+import ipaddress
 import argparse
 from random import randint
 
@@ -35,6 +36,29 @@ def handle_args():
 	a = p.parse_args()
 	return a
 
+
+def get_next_ip(_ipaddress):
+	""" 
+	gets the next ip address
+	- all of the heavy lifting is done in the 
+		ipaddress module
+	
+	Parameters:
+		ipaddress (str): a string representing a valid IP address
+	
+	Returns:
+		_ (str): a string representing the next IP address
+	"""
+	return ipaddress.IPv4Address(_ipaddress) + 1
+
+def get_netrange_end(asn_cidr):
+	"""
+	gets the end of the cidr
+	- again all of the heavy lifting has handled by these
+		ipaddress module
+	
+	Parameters:
+		asn_cidr
 def main():
 	"""
 	Get the whois data for IPv4 addresses
@@ -54,8 +78,13 @@ def main():
 		if args.sleep_min > args.sleep_max:
 			args.sleep_min, args.sleep_max = args.sleep_max, args.sleep_min
 		print("sleep-min: {0} sleep-max: {1}".format(args.sleep_min, \
-			args.sleep_max))
+		args.sleep_max))
 
+		starting_ip = ipaddress.IPv4Address('24.255.255.255')
+		#print(str(dir(starting_ip)))
+		print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
+			starting_ip + 1))
+    
 	elif 'stats' in args.action:
 		print("Got action stats.")
 		pass
