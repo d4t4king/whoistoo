@@ -110,12 +110,12 @@ def main():
 			print("Start: {0} End: {1}".format(starting_ip, \
 				ending_ip))
 
-		addr = u'24.255.255.255'
-		print("addr is a type {0}".format(type(addr)))
-		starting_ip = ipaddress.ip_address(addr)
-		#print(str(dir(starting_ip)))
-		print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
-			starting_ip + 1))
+			#addr = u'24.255.255.255'
+			print("addr is a type {0}".format(type(starting_ip.decode('utf-8'))))
+			starting_ip = ipaddress.ip_address(starting_ip.decode('utf-8'))
+			#print(str(dir(starting_ip)))
+			print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
+				starting_ip + 1))
 
 	elif 'stats' in args.action:
 		print("Got action stats.")
