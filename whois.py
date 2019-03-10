@@ -26,7 +26,7 @@ def handle_args():
 		help="Maximum thread sleep value in seconds.", \
 		default=randint(1, 5))
 	p.add_argument('-t', '--threads', type=int, dest='num_threads', \
-		help="Number of threads to use.")
+		help="Number of threads to use.", default=8)
 	p.add_argument('-e', '--eleastic-url', dest='elastic_url', \
 		help="URL for the elasticsearch server, including port.")
 	p.add_argument('-i', '--elastic-index', dest='elastic_index', \
@@ -38,27 +38,52 @@ def handle_args():
 
 
 def get_next_ip(_ipaddress):
-	""" 
+	"""
 	gets the next ip address
-	- all of the heavy lifting is done in the 
+	- all of the heavy lifting is done in the
 		ipaddress module
-	
+
 	Parameters:
 		ipaddress (str): a string representing a valid IP address
-	
+
 	Returns:
 		_ (str): a string representing the next IP address
 	"""
 	return ipaddress.IPv4Address(_ipaddress) + 1
+
+def break_up_ipv4_address_space(num_threads):
+	"""
+	breaks up the total IP address space into
+	manageable chunks
+
+	Parameters:
+		num_threads (int): the number of threads to distribute
+			the IP space amongst
+
+	Returns:
+		ranges (list): returns the list of tuples
+			representing ranges to check
+	"""
+	ranges = []
+	multiplier = 256 / num_threads
+	for marker in range(0, num_threads):
+		starting_class_a = (marker * multiplier)
+		ending_class_a = ((marker +1) * multiplier) - 1
+		ranges.append(('%d.0.0.0' % starting_class_a,
+						'%d.255.255.255' % ending_class_a))
+	return ranges
 
 def get_netrange_end(asn_cidr):
 	"""
 	gets the end of the cidr
 	- again all of the heavy lifting has handled by these
 		ipaddress module
-	
+
 	Parameters:
-		asn_cidr
+		asn_cidr (str): the ASN CIDR string from the whois data
+	Returns:
+
+	"""
 def main():
 	"""
 	Get the whois data for IPv4 addresses
@@ -80,11 +105,18 @@ def main():
 		print("sleep-min: {0} sleep-max: {1}".format(args.sleep_min, \
 		args.sleep_max))
 
-		starting_ip = ipaddress.IPv4Address('24.255.255.255')
+		for starting_ip, ending_ip in \
+			break_up_ipv4_address_space(args.num_threads):
+			print("Start: {0} End: {1}".format(starting_ip, \
+				ending_ip))
+
+		addr = u'24.255.255.255'
+		print("addr is a type {0}".format(type(addr)))
+		starting_ip = ipaddress.ip_address(addr)
 		#print(str(dir(starting_ip)))
 		print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
 			starting_ip + 1))
-    
+
 	elif 'stats' in args.action:
 		print("Got action stats.")
 		pass
