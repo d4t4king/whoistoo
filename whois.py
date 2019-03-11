@@ -5,6 +5,8 @@ IPv4 Whois data collection and analysis tool
 
 """
 
+import gevent
+import ipcalc
 import ipwhois
 import ipaddress
 import argparse
@@ -42,7 +44,6 @@ def handle_args():
 	a = p.parse_args()
 	return a
 
-
 def get_next_ip(_ipaddress):
 	"""
 	gets the next ip address
@@ -55,7 +56,62 @@ def get_next_ip(_ipaddress):
 	Returns:
 		_ (str): a string representing the next IP address
 	"""
-	return ipaddress.IPv4Address(_ipaddress) + 1
+	return ipaddress.ip_address(_ipaddress) + 1
+
+def get_netrange_end(asn_cidr):
+	"""
+	gets the last address in the cidr
+
+	Parameters:
+		asn_cidr (str): ASN CIDR
+
+	Returns:
+		ip (str): last IP address in cidr
+	"""
+	return ipaddress.ip_network(asn_cidr.decode('utf-8')).broadcast_address
+
+def get_next_undefined_address(ip):
+	"""
+	get the next non-private IPv4 address if the address sent is private
+
+	Parameters:
+		ip (str): IPv4 address
+
+	Returns:
+		rip (str): IPv4 address of net non-private address
+	"""
+
+	if 'str' not in str(type(ip)):
+		ip = str(ip)
+
+	try:
+		# Should weed out any invalid IP Addresses
+		ipcalc.Network(ip)
+	except ValueError as err:
+		return None
+
+	defined_networks = (
+		'0.0.0.0/8',
+		'10.0.0.0/8',
+		'127.0.0.0/8',
+		'169.254.0.0/16',
+		'192.0.0.0/24',
+		'192.0.2.0/24', 
+		'192.88.99.0/24',
+		'192.168.0.0/16',
+		'198.18.0.0/15',
+		'198.51.100.0/20',
+		'203.0.113.0/24',
+		'224.0.0.0/4',
+		'240.0.0.0/4',
+		'255.255.255.255/32',
+	)
+
+	for network_cidr in defined_networks:
+		if ip in ipcalc.Network(network_cidr):
+			return get_next_ip(get_netrange_end(network_cidr))
+
+	return ip
 
 def break_up_ipv4_address_space(num_threads):
 	"""
@@ -92,22 +148,22 @@ def get_netranges(starting_ip = '1.0.0.0',
 	Parameters:
 		asn_cidr (str): the ASN CIDR string from the whois data
 	"""
-	#print("EleasticSearch URL: {0}".format(elastic_search_url))
+	print("EleasticSearch URL: {0}".format(elastic_search_url))
 	connection = ElasticSearch(elastic_search_url)
 	current_ip = starting_ip
 
+	print("DEBUG: Starting loop...")
 	while True:
 		#print("Current IP: {0}, Last IP: {1}".format(type(current_ip), \
 		#	type(last_ip)))
+		print("DEBUG: in loop")
 		# See if we've finished the range of work
 		if ipaddress.ip_network(str(current_ip).decode('utf-8')) > \
 			ipaddress.ip_network(last_ip.decode('utf-8')):
+			print("DEBUG: current ip bigger than last ip.  Batch done.")
 			return
 
-		if current_ip.is_private or \
-			current_ip.is_multicast or \
-			current_ip.is_reserved:
-			continue
+		current_ip = get_next_undefined_address(current_ip)
 
 		print("{0}".format(current_ip))
 
@@ -123,10 +179,12 @@ def get_netranges(starting_ip = '1.0.0.0',
 			assert last_netrange_ip.count('.') == 3
 
 		assert last_netrange_ip is not None and \
-			last_netrange_ip.count('.') == 3, \
+			str(last_netrange_ip).count('.') == 3, \
 			'Unable to find last netrange ip for %s: %s' % (current_ip,
 															whois_resp)
 		# a bunch of elasticsearch stuff we'll get to
+
+		current_ip = get_next_ip(last_netrange_ip)
 
 		if current_ip is None:
 			return # No more undefined ip addresses
@@ -163,12 +221,12 @@ def main():
 			#print("addr is a type {0}".format(type(starting_ip.decode('utf-8'))))
 			starting_ip = ipaddress.ip_address(starting_ip.decode('utf-8'))
 			#print(str(dir(starting_ip)))
-			print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
-				starting_ip + 1))
+			#print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
+			#	starting_ip + 1))
 
-		get_netranges(starting_ip, ending_ip, args.elastic_url, \
-			args.elastic_index, args.elastic_doc, args.sleep_min, \
-			args.sleep_max)
+			get_netranges(starting_ip, ending_ip, args.elastic_url, \
+				args.elastic_index, args.elastic_doc, args.sleep_min, \
+				args.sleep_max)
 
 	elif 'stats' in args.action:
 		print("Got action stats.")
