@@ -8,6 +8,9 @@ IPv4 Whois data collection and analysis tool
 import ipaddress
 import argparse
 from random import randint
+from pyelasticsearch import ElasticSearch
+from pyelasticsearch.exceptions import \
+	ElasticHttpError, ElasticHttpNotFoundError
 
 def handle_args():
 	"""
@@ -27,7 +30,7 @@ def handle_args():
 		default=randint(1, 5))
 	p.add_argument('-t', '--threads', type=int, dest='num_threads', \
 		help="Number of threads to use.", default=8)
-	p.add_argument('-e', '--eleastic-url', dest='elastic_url', \
+	p.add_argument('-e', '--elastic-url', dest='elastic_url', \
 		help="URL for the elasticsearch server, including port.")
 	p.add_argument('-i', '--elastic-index', dest='elastic_index', \
 		help="Eleasticsearch document index.")
@@ -73,7 +76,11 @@ def break_up_ipv4_address_space(num_threads):
 						'%d.255.255.255' % ending_class_a))
 	return ranges
 
-def get_netrange_end(asn_cidr):
+def get_netranges(starting_ip = '1.0.0.0',
+					last_ip='2.0.0.0',
+					elastic_search_url='http://127.0.0.1:9200/',
+					index_name='netblocks',
+					doc_name='netblock', sleep_min=1, sleep_max=5):
 	"""
 	gets the end of the cidr
 	- again all of the heavy lifting has handled by these
@@ -81,9 +88,39 @@ def get_netrange_end(asn_cidr):
 
 	Parameters:
 		asn_cidr (str): the ASN CIDR string from the whois data
-	Returns:
-
 	"""
+	connection = ElasticSearch(elastic_search_url)
+	current_ip = starting_ip
+
+	while True:
+		# See if we've finished the range of work
+		if ipaddress.ip_network(current_ip) > ipaddress.ip_network(last_ip):
+			return
+
+		print("{0}".format(current_ip))
+
+		whois_resp = ipwhois.IPWhois(current_ip).lookup_rdap()
+
+		if 'asn_cidr' in whois_resp and \
+			whois_resp['asn_cidr'] is not None and \
+			whois_resp['asn_cidr'].count('.') == 3:
+			last_netrange_ip = get_netrange_end(whois_resp['asn_cidr'])
+		else:
+			last_netrange_ip = \
+				whois_resp['nets'][0]['range'].split('-')[-1].strip()
+			assert last_netrange_ip.count('.') == 3
+
+		assert last_netrange_ip is not None and \
+			last_netrange_ip.count('.') == 3, \
+			'Unable to find last netrange ip for %s: %s' % (current_ip,
+															whois_resp)
+		# a bunch of elasticsearch stuff we'll get to
+
+		if current_ip is None:
+			return # No more undefined ip addresses
+
+		gevent.sleep(randint(sleep_min, sleep_max))
+
 def main():
 	"""
 	Get the whois data for IPv4 addresses
@@ -116,6 +153,10 @@ def main():
 			#print(str(dir(starting_ip)))
 			print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
 				starting_ip + 1))
+
+		get_netranges(starting_ip, ending_ip, args.elastic_url, \
+			args.elastic_index, args.elastic_doc, args.sleep_min, \
+			args.sleep_max)
 
 	elif 'stats' in args.action:
 		print("Got action stats.")
