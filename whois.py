@@ -5,6 +5,7 @@ IPv4 Whois data collection and analysis tool
 
 """
 
+import pprint
 import gevent
 import ipcalc
 import ipwhois
@@ -56,7 +57,14 @@ def get_next_ip(_ipaddress):
 	Returns:
 		_ (str): a string representing the next IP address
 	"""
-	return ipaddress.ip_address(_ipaddress) + 1
+	if 'IPv4Address' in str(type(_ipaddress)):
+		return str(_ipaddress + 1)
+	elif 'unicode' in str(type(_ipaddress)):
+		return str(ipaddress.ip_address(_ipaddress) + 1)
+	elif 'str' in str(type(_ipaddress)):
+		return str(ipaddress.ip_address(_ipaddress.decode('utf-8')) + 1)
+	else:
+		raise TypeError("Unrecognized type given for _ipaddress: {0}".format(type(_ipaddress)))
 
 def get_netrange_end(asn_cidr):
 	"""
@@ -152,6 +160,9 @@ def get_netranges(starting_ip = '1.0.0.0',
 	connection = ElasticSearch(elastic_search_url)
 	current_ip = starting_ip
 
+	# debugging
+	pp = pprint.PrettyPrinter(indent=4)
+
 	print("DEBUG: Starting loop...")
 	while True:
 		#print("Current IP: {0}, Last IP: {1}".format(type(current_ip), \
@@ -167,16 +178,37 @@ def get_netranges(starting_ip = '1.0.0.0',
 
 		print("{0}".format(current_ip))
 
-		whois_resp = ipwhois.IPWhois(current_ip).lookup_rdap()
+		whois_resp = ipwhois.IPWhois(current_ip).lookup_rdap(asn_methods=['whois','http'])
 
+		last_netrange_ip = ''
 		if 'asn_cidr' in whois_resp and \
 			whois_resp['asn_cidr'] is not None and \
 			whois_resp['asn_cidr'].count('.') == 3:
 			last_netrange_ip = get_netrange_end(whois_resp['asn_cidr'])
 		else:
-			last_netrange_ip = \
-				whois_resp['nets'][0]['range'].split('-')[-1].strip()
-			assert last_netrange_ip.count('.') == 3
+			if 'nets' in whois_resp:
+				last_netrange_ip = \
+					whois_resp['nets'][0]['range'].split('-')[-1].strip()
+			elif 'network' in whois_resp:
+				if "," in whois_resp['network']['cidr']:
+					# we get a list of CIDRs ("many whelps!!!")
+					# handle it!
+					pp.pprint(whois_resp['network']['cidr'])
+					# first, put the ranges in order, 
+					nets = whois_resp['network']['cidr'].split(',')
+					pp.pprint(nets)					
+					# then get the last IP for the last net
+					last_netrange_ip = \
+						str(ipaddress.ip_network(
+							nets[-1].replace(" ", "").decode('utf-8')
+						).broadcast_address).decode('utf-8')
+				else:
+					last_netrange_ip = \
+						str(ipaddress.ip_network(
+							whois_resp['network']['cidr'].decode('utf-8')
+						).broadcast_address).decode('utf-8')
+			else:
+				print("Whois response is missing the 'nets' and 'network' keys.")
 
 		assert last_netrange_ip is not None and \
 			str(last_netrange_ip).count('.') == 3, \
@@ -184,6 +216,7 @@ def get_netranges(starting_ip = '1.0.0.0',
 															whois_resp)
 		# a bunch of elasticsearch stuff we'll get to
 
+		print("DEBUG: last_netrange_ip={0}".format(last_netrange_ip))
 		current_ip = get_next_ip(last_netrange_ip)
 
 		if current_ip is None:
