@@ -5,6 +5,8 @@ IPv4 Whois data collection and analysis tool
 
 """
 
+import json
+import netaddr
 import pprint
 import gevent
 import ipcalc
@@ -214,7 +216,55 @@ def get_netranges(starting_ip = '1.0.0.0',
 			str(last_netrange_ip).count('.') == 3, \
 			'Unable to find last netrange ip for %s: %s' % (current_ip,
 															whois_resp)
+
 		# a bunch of elasticsearch stuff we'll get to
+		block_size = 0
+		if 'asn_cidr' in whois_resp:
+			block_size = \
+				netaddr.IPNetwork(whois_resp['asn_cidr']).size
+		elif 'network' in whois_resp:
+			block_size = \
+				netaddr.IPNetwork(whois_resp['network']['cidr']).size
+		else:
+			pp.pprint(whois_resp)
+			raise KeyError("No recognizable keys in whois response.")
+
+		entry = {
+			"netblock_start": current_ip, 
+			"neblock_end": last_netrange_ip,
+			"block_size": block_size,
+			"whois": json.dumps(whois_resp),
+		}
+
+		# need to figure out a way to determin which data set we've got
+		# I don't know if it's the same for http or whois asn_methods.
+		keys = ('cidr', 'name', 'handle', 'range', 'description',
+			'country', 'state', 'city', 'address', 'postal_code', 
+			'abuse_emails', 'tech_emails', 'misc_emails', 'created',
+			'updated')
+
+		if 'net' in whois_resp:
+			for _key in keys:
+				entry[_key] = str(whois_resp['nets'][0][_key]) \
+					if _key in whois_resp['net'][0] and \
+						whois_resp['nets'][0][_key] else None
+
+				if _key == 'city' and entry[_key] and ' ' in entry[_key]:
+					entry[_key] = entry[_key].replace(' ', '_')
+		elif 'network' in whois_resp:
+			for _key in keys:
+				entry[_key] = str(whois_resp['network'][_key]) \
+					if _key in whois_resp['network'] and \
+						whois_resp['network'][_key] else None
+
+				if _key == 'city' and entry[_key] and ' ' in entry[_key]:
+					entry[_key] = entry[_key].replace(' ', '_')
+
+		try:
+			connection.index(index_name, doc_name, entry)
+		except ElasticHttpError as err:
+			print('At %s.  Unable to save record: %s' % (current_ip, entry))
+			raise error
 
 		print("DEBUG: last_netrange_ip={0}".format(last_netrange_ip))
 		current_ip = get_next_ip(last_netrange_ip)
