@@ -14,9 +14,10 @@ import ipwhois
 import ipaddress
 import argparse
 from random import randint
-from pyelasticsearch import ElasticSearch
-from pyelasticsearch.exceptions import \
-	ElasticHttpError, ElasticHttpNotFoundError
+from elasticsearch import Elasticsearch
+#from pyelasticsearch import ElasticSearch
+#from pyelasticsearch.exceptions import \
+#	ElasticHttpError, ElasticHttpNotFoundError
 
 def handle_args():
 	"""
@@ -159,7 +160,7 @@ def get_netranges(starting_ip = '1.0.0.0',
 		asn_cidr (str): the ASN CIDR string from the whois data
 	"""
 	print("EleasticSearch URL: {0}".format(elastic_search_url))
-	connection = ElasticSearch(elastic_search_url)
+	connection = Elasticsearch(elastic_search_url)
 	current_ip = starting_ip
 
 	# debugging
@@ -177,8 +178,6 @@ def get_netranges(starting_ip = '1.0.0.0',
 			return
 
 		current_ip = get_next_undefined_address(current_ip)
-
-		print("{0}".format(current_ip))
 
 		whois_resp = ipwhois.IPWhois(current_ip).lookup_rdap(asn_methods=['whois','http'])
 
@@ -217,31 +216,50 @@ def get_netranges(starting_ip = '1.0.0.0',
 			'Unable to find last netrange ip for %s: %s' % (current_ip,
 															whois_resp)
 
+		print("{0} - {1}".format(current_ip, last_netrange_ip))
+
 		# a bunch of elasticsearch stuff we'll get to
 		block_size = 0
-		if 'asn_cidr' in whois_resp:
+		if 'asn_cidr' in whois_resp and \
+			whois_resp['asn_cidr'] != 'NA':
+				# 
+			#	pp.pprint(whois_resp)
+			#else:
 			block_size = \
 				netaddr.IPNetwork(whois_resp['asn_cidr']).size
 		elif 'network' in whois_resp:
-			block_size = \
-				netaddr.IPNetwork(whois_resp['network']['cidr']).size
+			if "," in whois_resp['network']['cidr']:
+				# We were (likely) given a list of CIDRs.  This probably means
+				# that the assignment doesn't fit cleanly on "proper"
+				# super-/subnetting boundaries.
+				# FIXME
+				for c in whois_resp['network']['cidr'].split(","):
+					block_size += netaddr.IPNetwork(c.strip()).size
+			else:
+				try:
+					block_size = \
+						netaddr.IPNetwork(whois_resp['network']['cidr']).size
+				except ValueError as error:
+					print("IPNetwork constructor didn't like |{0}| as a \
+network.".format(whois_resp['network']['cidr']))
+					raise error
 		else:
 			pp.pprint(whois_resp)
 			raise KeyError("No recognizable keys in whois response.")
 
 		entry = {
-			"netblock_start": current_ip, 
-			"neblock_end": last_netrange_ip,
+			"netblock_start": str(current_ip),
+			"neblock_end": str(last_netrange_ip),
 			"block_size": block_size,
 			"whois": json.dumps(whois_resp),
 		}
 
 		# need to figure out a way to determin which data set we've got
 		# I don't know if it's the same for http or whois asn_methods.
-		keys = ('cidr', 'name', 'handle', 'range', 'description',
-			'country', 'state', 'city', 'address', 'postal_code', 
-			'abuse_emails', 'tech_emails', 'misc_emails', 'created',
-			'updated')
+		keys = ("cidr", "name", "handle", "range", "description",
+			"country", "state", "city", "address", "postal_code", 
+			"abuse_emails", "tech_emails", "misc_emails", "created",
+			"updated")
 
 		if 'net' in whois_resp:
 			for _key in keys:
@@ -259,12 +277,14 @@ def get_netranges(starting_ip = '1.0.0.0',
 
 				if _key == 'city' and entry[_key] and ' ' in entry[_key]:
 					entry[_key] = entry[_key].replace(' ', '_')
+		
+		print("DEBUG: entry is of type: {0}".format(type(entry)))
 
 		try:
-			connection.index(index_name, doc_name, entry)
+			connection.index(index_name, doc_name, json.dumps(entry))
 		except ElasticHttpError as err:
 			print('At %s.  Unable to save record: %s' % (current_ip, entry))
-			raise error
+			raise err
 
 		print("DEBUG: last_netrange_ip={0}".format(last_netrange_ip))
 		current_ip = get_next_ip(last_netrange_ip)
@@ -295,21 +315,25 @@ def main():
 		print("sleep-min: {0} sleep-max: {1}".format(args.sleep_min, \
 		args.sleep_max))
 
-		for starting_ip, ending_ip in \
-			break_up_ipv4_address_space(args.num_threads):
-			print("Start: {0} End: {1}".format(starting_ip, \
-				ending_ip))
+		#for starting_ip, ending_ip in \
+			#break_up_ipv4_address_space(args.num_threads):
+			#print("Start: {0} End: {1}".format(starting_ip, \
+			#	ending_ip))
 
 			#addr = u'24.255.255.255'
 			#print("addr is a type {0}".format(type(starting_ip.decode('utf-8'))))
-			starting_ip = ipaddress.ip_address(starting_ip.decode('utf-8'))
+			#starting_ip = ipaddress.ip_address(starting_ip.decode('utf-8'))
 			#print(str(dir(starting_ip)))
 			#print("Starting IP: {0}, Next IP: {1}".format(starting_ip, \
 			#	starting_ip + 1))
 
-			get_netranges(starting_ip, ending_ip, args.elastic_url, \
-				args.elastic_index, args.elastic_doc, args.sleep_min, \
-				args.sleep_max)
+		threads = [gevent.spawn(get_netranges, starting_ip, ending_ip, \
+			args.elastic_url, args.elastic_index, args.elastic_doc, \
+			args.sleep_min, args.sleep_max) 
+			for starting_ip, ending_ip in 
+			break_up_ipv4_address_space(args.num_threads)]
+
+		gevent.joinall(threads)
 
 	elif 'stats' in args.action:
 		print("Got action stats.")
