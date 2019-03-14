@@ -11,6 +11,7 @@ import pprint
 import gevent
 import ipcalc
 import ipwhois
+from ipwhois.exceptions import HTTPLookupError, ASNLookupError, ASNRegistryError
 import ipaddress
 import argparse
 from random import randint
@@ -179,7 +180,18 @@ def get_netranges(starting_ip = '1.0.0.0',
 
 		current_ip = get_next_undefined_address(current_ip)
 
-		whois_resp = ipwhois.IPWhois(current_ip).lookup_rdap(asn_methods=['whois','http'])
+		try:
+			whois_resp = ipwhois.IPWhois(current_ip).lookup_rdap(asn_methods=['whois','http'])
+		except HTTPLookupError as error:
+			print("Error on {0}: {1}".format(current_ip, error))
+			gevent.sleep(randint(sleep_min, sleep_max))
+			current_ip = get_net_unregistered_ip(current_ip)
+			continue
+		except ASNRegistryError as error:
+			print("Error on {0}: {1}".format(current_ip, error))
+			gevent.sleep(randint(sleep_min, sleep_max))
+			current_ip = get_net_unregistered_ip(current_ip)
+			continue
 
 		last_netrange_ip = ''
 		if 'asn_cidr' in whois_resp and \
